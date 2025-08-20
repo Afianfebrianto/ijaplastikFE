@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 export default function ReceiveGRN(){
   const [rows, setRows] = useState([])
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('confirmed') // default: PO yang siap diterima
+  const [status, setStatus] = useState('') // default: Semua
   const [page, setPage] = useState(1)
   const [limit] = useState(20)
   const [total, setTotal] = useState(0)
@@ -15,16 +15,30 @@ export default function ReceiveGRN(){
   const load = async () => {
     setLoading(true)
     try {
-      const r = await axios.get('/purchase', { params: { search, status, page, limit }})
+      const params = { search, page, limit }
+      if (status) params.status = status // kirim status hanya jika dipilih
+      const r = await axios.get('/purchase', { params })
       setRows(r.data.data || [])
       setTotal(r.data.total || 0)
     } finally { setLoading(false) }
   }
 
-  useEffect(()=>{ load() }, [page])
+  useEffect(()=>{ load() }, [page]) // awal & saat pindah halaman
   const submitFilter = async (e) => { e?.preventDefault?.(); setPage(1); await load() }
 
   const pages = useMemo(()=> Math.max(1, Math.ceil(total/limit)), [total, limit])
+
+  const goAction = (po) => {
+    if (po.status === 'received') {
+      // ke halaman detail PO (ubah sesuai rute detailmu)
+      nav(`/admin/purchase/${po.id}`)
+    } else {
+      // ke halaman penerimaan (receive)
+      nav(`/admin/purchase/${po.id}/receive`)
+    }
+  }
+
+  const actionLabel = (po) => (po.status === 'received' ? 'Detail' : 'Receive')
 
   return (
     <div className="space-y-4">
@@ -33,8 +47,12 @@ export default function ReceiveGRN(){
       <form onSubmit={submitFilter} className="card grid md:grid-cols-4 gap-2">
         <div className="md:col-span-2">
           <label className="block text-sm font-medium mb-1">Search (Kode atau Nama Supplier)</label>
-          <input className="input" placeholder="cth: PO-2025 atau Sumber Bahan"
-                 value={search} onChange={e=>setSearch(e.target.value)} />
+          <input
+            className="input"
+            placeholder="cth: PO-2025 atau Sumber Bahan"
+            value={search}
+            onChange={e=>setSearch(e.target.value)}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Status</label>
@@ -75,9 +93,10 @@ export default function ReceiveGRN(){
                 <td>
                   <button
                     className="text-blue-600 hover:underline"
-                    onClick={()=> nav(`/admin/purchase/${po.id}/receive`)}
+                    onClick={()=> goAction(po)}
+                    title={actionLabel(po)}
                   >
-                    Receive
+                    {actionLabel(po)}
                   </button>
                 </td>
               </tr>
@@ -93,7 +112,7 @@ export default function ReceiveGRN(){
         <div className="text-sm text-gray-600">Total: {total}</div>
         <div className="flex gap-2">
           <button className="px-3 py-1 border rounded" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Prev</button>
-          <div className="px-3 py-1 border rounded">Page {page} / {Math.max(1, Math.ceil(total/limit))}</div>
+          <div className="px-3 py-1 border rounded">Page {page} / {pages}</div>
           <button className="px-3 py-1 border rounded" disabled={page>=pages} onClick={()=>setPage(p=>p+1)}>Next</button>
         </div>
       </div>

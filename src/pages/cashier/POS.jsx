@@ -17,15 +17,26 @@ export default function POS(){
 
   useEffect(()=>{ axios.get('/products').then(r=>setProducts(r.data.data||[])) },[])
 
+  const getAvailPack = (p) => {
+    const size = Number(p.pack_size || 1)
+    const units = Number(p.stock_units || 0)
+    return Math.floor(units / (size > 0 ? size : 1))
+  }
+
   const add = (p, type='unit') => {
+    // guard stok saat menambah dari kartu produk
+    if (type === 'unit' && Number(p.stock_units || 0) <= 0) return
+    if (type === 'pack' && getAvailPack(p) <= 0) return
+
     const idx = cart.findIndex(c => c.product_id===p.id && c.item_type===type)
     if (idx>=0){
       const v=[...cart]; v[idx].qty += 1; setCart(v)
     } else {
-      setCart([...cart, {
+      setCart(prev => [...prev, {
         product_id:p.id, name:p.name, item_type:type, qty:1,
         price: type==='pack'?p.wholesale_price_per_pack : p.retail_price_per_unit,
-        pack_size:p.pack_size
+        pack_size:p.pack_size,
+        stock_units: p.stock_units ?? 0 // simpan stok untuk referensi (opsional)
       }])
     }
   }
@@ -41,7 +52,6 @@ export default function POS(){
       const name = (p.name || '').toLowerCase()
       const sku = (p.sku || '').toLowerCase()
       const cat = (p.category || '').toLowerCase()
-      // setiap token boleh match di salah satu kolom
       return tokens.every(t => name.includes(t) || sku.includes(t) || cat.includes(t))
     })
   }, [products, q])
@@ -75,6 +85,18 @@ export default function POS(){
     nav(`/cashier/receipt/${r.data.id}`)
   }
 
+  // helper untuk update qty pada cart (termasuk hapus saat 0)
+  const setQty = (index, q) => {
+    const next = [...cart]
+    const n = Number(q || 0)
+    if (n <= 0) {
+      next.splice(index, 1) // qty 0 → hapus item
+    } else {
+      next[index].qty = n
+    }
+    setCart(next)
+  }
+
   return (
     <div className="grid md:grid-cols-3 gap-4">
       <div className="md:col-span-2 space-y-3">
@@ -87,20 +109,48 @@ export default function POS(){
           />
         </div>
         <div className="grid md:grid-cols-3 gap-3">
-          {filtered.map(p => (
-            <div key={p.id} className="border rounded p-3">
-              <div className="font-medium">{p.name}</div>
-              <div className="text-xs text-gray-500 mb-1">
-                {p.sku || '—'} • {p.category || 'Tanpa Kategori'} • Pack {p.pack_size} {p.unit_name}
+          {filtered.map(p => {
+            const stockUnits = Number(p.stock_units || 0)
+            const stockPacks = getAvailPack(p)
+            const disableUnit = stockUnits <= 0
+            const disablePack = stockPacks <= 0
+            return (
+              <div key={p.id} className="border rounded p-3">
+                <div className="font-medium">{p.name}</div>
+                <div className="text-xs text-gray-500 mb-1">
+                  {p.sku || '—'} • {p.category || 'Tanpa Kategori'} • Pack {p.pack_size} {p.unit_name}
+                </div>
+
+                {/* Harga */}
+                <div className="text-sm">Unit: {Number(p.retail_price_per_unit).toLocaleString()}</div>
+                <div className="text-sm">Pack: {Number(p.wholesale_price_per_pack).toLocaleString()}</div>
+
+                {/* Stok */}
+                <div className="mt-1 text-xs text-gray-600">
+                  Stok Unit: <b>{stockUnits.toLocaleString()}</b> • Stok Pack: <b>{stockPacks.toLocaleString()}</b>
+                </div>
+
+                <div className="flex gap-2 mt-2">
+                  <button
+                    className={`px-2 py-1 border rounded ${disableUnit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    onClick={()=>add(p,'unit')}
+                    disabled={disableUnit}
+                    title={disableUnit ? 'Stok unit habis' : ''}
+                  >
+                    + Unit
+                  </button>
+                  <button
+                    className={`px-2 py-1 border rounded ${disablePack ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    onClick={()=>add(p,'pack')}
+                    disabled={disablePack}
+                    title={disablePack ? 'Stok pack habis' : ''}
+                  >
+                    + Pack
+                  </button>
+                </div>
               </div>
-              <div className="text-sm">Unit: {Number(p.retail_price_per_unit).toLocaleString()}</div>
-              <div className="text-sm mb-2">Pack: {Number(p.wholesale_price_per_pack).toLocaleString()}</div>
-              <div className="flex gap-2">
-                <button className="px-2 py-1 border rounded" onClick={()=>add(p,'unit')}>+ Unit</button>
-                <button className="px-2 py-1 border rounded" onClick={()=>add(p,'pack')}>+ Pack</button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
           {!filtered.length && (
             <div className="col-span-full text-sm text-gray-500">Tidak ada produk yang cocok.</div>
           )}
@@ -108,22 +158,55 @@ export default function POS(){
       </div>
 
       <div className="space-y-3">
+        {/* Cart */}
         <div className="card">
           <div className="font-medium mb-2">Cart</div>
           <div className="space-y-2">
-            {cart.map((c,idx)=>(
+            {cart.map((c, idx) => (
               <div key={idx} className="flex items-center justify-between gap-2">
                 <div className="text-sm">
                   {c.name} <span className="text-gray-500">({c.item_type})</span>
                 </div>
+
                 <div className="flex items-center gap-2">
-                  <button className="px-2 border rounded" onClick={()=>{ const v=[...cart]; v[idx].qty=Math.max(1, v[idx].qty-1); setCart(v); }}>-</button>
-                  <input className="w-14 input" type="number" value={c.qty}
-                         onChange={e=>{ const v=[...cart]; v[idx].qty=Math.max(1, Number(e.target.value||1)); setCart(v); }} />
-                  <button className="px-2 border rounded" onClick={()=>{ const v=[...cart]; v[idx].qty=v[idx].qty+1; setCart(v); }}>+</button>
+                  <button
+                    className="px-2 border rounded"
+                    onClick={() => setQty(idx, Number(c.qty) - 1)}
+                  >
+                    -
+                  </button>
+
+                  <input
+                    className="w-16 input text-center"
+                    type="number"
+                    min={0}
+                    value={c.qty}
+                    onFocus={(e) => e.target.select()}  // auto-select saat fokus
+                    onClick={(e) => e.target.select()}  // auto-select saat klik
+                    onChange={(e) => setQty(idx, e.target.value)}
+                  />
+
+                  <button
+                    className="px-2 border rounded"
+                    onClick={() => setQty(idx, Number(c.qty) + 1)}
+                  >
+                    +
+                  </button>
                 </div>
-                <div className="w-24 text-right">{Number(c.price*c.qty).toLocaleString()}</div>
-                <button className="text-red-600" onClick={()=>setCart(cart.filter((_,i)=>i!==idx))}>x</button>
+
+                <div className="w-24 text-right">{Number(c.price * c.qty).toLocaleString()}</div>
+
+                <button
+                  className="text-red-600"
+                  onClick={() => {
+                    const next = [...cart]
+                    next.splice(idx, 1)
+                    setCart(next)
+                  }}
+                  title="Hapus item"
+                >
+                  x
+                </button>
               </div>
             ))}
             {!cart.length && <div className="text-sm text-gray-500">Belum ada item</div>}
