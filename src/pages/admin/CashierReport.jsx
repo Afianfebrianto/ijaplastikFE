@@ -2,14 +2,21 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import axios from 'axios'
 
 function ymd(d){
-  const pad = n => String(n).padStart(2,'0')
+  const pad = n => String(n).toString().padStart(2,'0')
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 }
 
 export default function CashierReport(){
   const today = useMemo(()=> new Date(), [])
-  const [dateFrom, setDateFrom] = useState(ymd(today))
-  const [dateTo, setDateTo] = useState(ymd(today))
+
+  // hitung awal & akhir bulan berjalan
+  const monthStart = useMemo(()=> new Date(today.getFullYear(), today.getMonth(), 1), [today])
+  const monthEnd   = useMemo(()=> new Date(today.getFullYear(), today.getMonth()+1, 0), [today])
+
+  // default: bulan ini
+  const [dateFrom, setDateFrom] = useState(ymd(monthStart))
+  const [dateTo,   setDateTo]   = useState(ymd(monthEnd))
+
   const [cashiers, setCashiers] = useState([])
   const [cashierId, setCashierId] = useState('')
   const [rows, setRows] = useState([])
@@ -40,7 +47,9 @@ export default function CashierReport(){
     } finally { setLoading(false) }
   }
 
+  // load awal & saat ganti halaman
   useEffect(()=>{ load() }, [page])
+
   const submitFilter = async (e) => { e?.preventDefault?.(); setPage(1); await load() }
 
   const pages = useMemo(()=> Math.max(1, Math.ceil(total/limit)), [total, limit])
@@ -56,11 +65,9 @@ export default function CashierReport(){
       setShowDetail(true)
       setLoadingReceipt(true)
       setReceiptHtml('')
-      // IMPORTANT: ambil HTML receipt dari endpoint POS yang sama
       const { data } = await axios.get(`/sales/${saleRow.id}/receipt`, {
         responseType: 'text',
         headers: { 'Accept': 'text/html' },
-        // kalau pakai cookie session:
         withCredentials: true
       })
       setReceiptHtml(String(data || ''))
@@ -77,60 +84,40 @@ export default function CashierReport(){
     setReceiptHtml('')
   }
 
-const printReceipt = () => {
-  if (!receiptHtml) return;
+  const printReceipt = () => {
+    if (!receiptHtml) return;
+    const html = receiptHtml.includes('<html')
+      ? receiptHtml
+      : `<!doctype html><html><head><meta charset="utf-8"></head><body>${receiptHtml}</body></html>`;
 
-  // Pastikan HTML lengkap supaya printer nggak blank
-  const html = receiptHtml.includes('<html')
-    ? receiptHtml
-    : `<!doctype html><html><head><meta charset="utf-8"></head><body>${receiptHtml}</body></html>`;
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    Object.assign(iframe.style, { position:'fixed', right:'0', bottom:'0', width:'0', height:'0', border:'0', visibility:'hidden' });
+    document.body.appendChild(iframe);
 
-  // Buat iframe tersembunyi
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  Object.assign(iframe.style, {
-    position: 'fixed', right: '0', bottom: '0',
-    width: '0', height: '0', border: '0', visibility: 'hidden'
-  });
-  document.body.appendChild(iframe);
+    let printed = false;
+    let fallbackTimer;
 
-  // state lokal utk mencegah double-execution
-  let printed = false;
-  let fallbackTimer;
+    const cleanup = () => {
+      if (iframe && iframe.parentNode) {
+        try { iframe.parentNode.removeChild(iframe); } catch {}
+      }
+    };
+    const doPrint = () => {
+      if (printed) return;
+      printed = true;
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }
+      finally { setTimeout(cleanup, 300); }
+    };
 
-  const cleanup = () => {
-    // Hapus iframe sekali saja & aman
-    if (iframe && iframe.parentNode) {
-      try { iframe.parentNode.removeChild(iframe); } catch {}
-    }
+    iframe.addEventListener('load', () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      setTimeout(doPrint, 50);
+    }, { once:true });
+
+    fallbackTimer = setTimeout(doPrint, 1200);
+    iframe.srcdoc = html;
   };
-
-  const doPrint = () => {
-    if (printed) return;  // guard
-    printed = true;
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } finally {
-      // beri sedikit jeda biar dialog print kebuka dulu
-      setTimeout(cleanup, 300);
-    }
-  };
-
-  // load handler: kalau load terpanggil, batalkan fallback
-  iframe.addEventListener('load', () => {
-    if (fallbackTimer) clearTimeout(fallbackTimer);
-    // kasih sedikit delay agar layout siap
-    setTimeout(doPrint, 50);
-  }, { once: true });
-
-  // fallback kalau onload nggak terpanggil (mis. beberapa engines)
-  fallbackTimer = setTimeout(doPrint, 1200);
-
-  // Set konten terakhir (pakai srcdoc biar tidak kena CORS)
-  iframe.srcdoc = html;
-};
-
 
   return (
     <div className="space-y-4">
@@ -209,31 +196,25 @@ const printReceipt = () => {
         </table>
       </div>
 
-      {/* Dialog Receipt (render HTML dari endpoint) */}
+      {/* Dialog Receipt */}
       {showDetail && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            {/* Header */}
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <div className="font-semibold">
                 {activeSale?.receipt_no || 'Receipt'}
               </div>
               <div className="flex gap-2">
-                <button className="px-3 py-1 border rounded" onClick={()=>setShowDetail(false)}>Back</button>
+                <button className="px-3 py-1 border rounded" onClick={closeDetail}>Back</button>
                 <button className="btn-primary" onClick={printReceipt} disabled={!receiptHtml || loadingReceipt}>
                   {loadingReceipt ? 'Loading…' : 'Print'}
                 </button>
               </div>
             </div>
-
-            {/* Body */}
             <div ref={receiptBoxRef} className="p-3 max-h-[75vh] overflow-auto">
               {loadingReceipt && <div className="text-sm text-gray-500">Memuat receipt…</div>}
               {!loadingReceipt && (
-                <div
-                  // tampilkan HTML yang kita ambil dari /sales/:id/receipt
-                  dangerouslySetInnerHTML={{ __html: receiptHtml }}
-                />
+                <div dangerouslySetInnerHTML={{ __html: receiptHtml }} />
               )}
             </div>
           </div>

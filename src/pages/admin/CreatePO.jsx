@@ -199,7 +199,7 @@ export default function CreatePO(){
             <input
               ref={inputRef}
               className="input w-full"
-              placeholder="Ketik untuk cari supplier… (bisa juga langsung pilih dari daftar)"
+              placeholder="cari supplier"
               value={supplierSearch}
               onChange={(e)=>onSearchChange(e.target.value)}
               onFocus={onFocus}
