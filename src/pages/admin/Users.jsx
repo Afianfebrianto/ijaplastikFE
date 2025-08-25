@@ -238,7 +238,173 @@ export default function Users() {
       {/* Modal Create User */}
       {open && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          {/* isi form user seperti sebelumnya */}
+           {open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">User Baru</h2>
+              <button className="text-gray-500" onClick={() => setOpen(false)}>✕</button>
+            </div>
+
+            {/* Error */}
+            {errorMsg && (
+              <div className="mb-3 text-sm text-red-600">
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama</label>
+                <input
+                  className="input"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Email</label>
+                <input
+                  className="input"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone (opsional)</label>
+                <input
+                  className="input"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Role</label>
+                <select
+                  className="input"
+                  value={form.role}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setForm({ ...form, role: v, supplier_id: '' })
+                    if (v !== 'supplier') {
+                      setMakeNewSupplier(false)
+                      setSupQuery('')
+                      setSupList([])
+                    }
+                  }}>
+                  <option value="admin">Admin</option>
+                  <option value="cashier">Cashier</option>
+                  <option value="supplier">Supplier</option>
+                </select>
+              </div>
+
+              {/* Supplier section */}
+              {form.role === 'supplier' && (
+                <div className="md:col-span-2 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="mknewsup"
+                      type="checkbox"
+                      checked={makeNewSupplier}
+                      onChange={(e) => setMakeNewSupplier(e.target.checked)}
+                    />
+                    <label htmlFor="mknewsup" className="text-sm">Buat supplier baru (inline)</label>
+                  </div>
+
+                  {!makeNewSupplier ? (
+                    <>
+                      <label className="block text-sm font-medium mb-1">Pilih Supplier</label>
+                      <input
+                        className="input w-full"
+                        placeholder="Cari supplier (min 2 huruf)"
+                        value={supQuery}
+                        onChange={(e) => searchSuppliers(e.target.value)}
+                      />
+                      {supLoading && <div className="text-xs text-gray-500 mt-1">Mencari…</div>}
+                      {supList.length > 0 && (
+                        <ul className="border rounded mt-1 bg-white max-h-40 overflow-auto shadow">
+                          {supList.map((s) => (
+                            <li
+                              key={s.id}
+                              className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                              onClick={() => {
+                                setForm({ ...form, supplier_id: s.id })
+                                setSupQuery(s.name)
+                                setSupList([])
+                              }}
+                            >
+                              {s.name}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {form.supplier_id && (
+                        <div className="text-xs text-green-700 mt-1">
+                          Supplier terpilih: ID {form.supplier_id}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Nama Supplier</label>
+                        <input
+                          className="input"
+                          value={newSup.name}
+                          onChange={(e) => setNewSup({ ...newSup, name: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">PIC</label>
+                        <input
+                          className="input"
+                          value={newSup.pic_name}
+                          onChange={(e) => setNewSup({ ...newSup, pic_name: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Telepon</label>
+                        <input
+                          className="input"
+                          value={newSup.phone}
+                          onChange={(e) => setNewSup({ ...newSup, phone: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Email</label>
+                        <input
+                          className="input"
+                          value={newSup.email}
+                          onChange={(e) => setNewSup({ ...newSup, email: e.target.value })}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium mb-1">Alamat</label>
+                        <input
+                          className="input"
+                          value={newSup.address}
+                          onChange={(e) => setNewSup({ ...newSup, address: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button className="px-3 py-2 border rounded w-32" onClick={() => setOpen(false)}>Batal</button>
+              <button className="btn-primary flex-1" onClick={doCreate} disabled={submitting}>
+                {submitting ? 'Menyimpan…' : 'Simpan'}
+              </button>
+            </div>
+
+            <div className="text-xs text-gray-500 mt-2">
+              * Password awal: <b>123456789</b> (atau env <code>DEFAULT_USER_PASSWORD</code>)
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       )}
 
