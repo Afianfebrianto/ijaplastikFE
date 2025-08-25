@@ -8,3 +8,14 @@
   .btn-primary { @apply bg-gray-900 text-white px-3 py-2 rounded; }
   .card { @apply bg-white rounded shadow p-3; }
 }
+
+/* CSS khusus saat print */
+@media print {
+  header, nav, .app-header, .app-navbar, .btn, .no-print {
+    display: none !important;   /* sembunyikan header, navbar, tombol, dll */
+  }
+
+  body {
+    background: white !important;
+  }
+}

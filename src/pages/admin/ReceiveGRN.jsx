@@ -83,28 +83,34 @@ export default function ReceiveGRN(){
             </tr>
           </thead>
           <tbody>
-            {rows.map(po => (
-              <tr key={po.id} className="border-b">
-                <td className="py-2 font-medium">{po.code}</td>
-                <td>{po.supplier_name}</td>
-                <td className="uppercase text-gray-600">{po.status}</td>
-                <td>{po.item_count}</td>
-                <td>{new Date(po.created_at).toLocaleString()}</td>
-                <td>
-                  <button
-                    className="text-blue-600 hover:underline"
-                    onClick={()=> goAction(po)}
-                    title={actionLabel(po)}
-                  >
-                    {actionLabel(po)}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr><td className="py-4 text-gray-500" colSpan={6}>Tidak ada data</td></tr>
-            )}
-          </tbody>
+  {rows.map(po => (
+    <tr key={po.id} className="border-b">
+      <td className="py-2 font-medium">{po.code}</td>
+      <td>{po.supplier_name}</td>
+      <td className="uppercase text-gray-600">{po.status}</td>
+      <td>{po.item_count}</td>
+      <td>{new Date(po.created_at).toLocaleString()}</td>
+      <td>
+        {/* Jangan tampilkan tombol kalau masih draft */}
+        {po.status !== 'sent' && (
+          <button
+            className="text-blue-600 hover:underline"
+            onClick={()=> goAction(po)}
+            title={actionLabel(po)}
+          >
+            {actionLabel(po)}
+          </button>
+        )}
+      </td>
+    </tr>
+  ))}
+  {!rows.length && (
+    <tr>
+      <td className="py-4 text-gray-500" colSpan={6}>Tidak ada data</td>
+    </tr>
+  )}
+</tbody>
+
         </table>
       </div>
 

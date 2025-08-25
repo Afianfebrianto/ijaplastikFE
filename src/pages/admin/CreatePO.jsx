@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import axios from 'axios'
+import ResultDialog from '../../components/ResultDialog' // <-- sesuaikan path sesuai struktur project-mu
 
 export default function CreatePO(){
   const [products, setProducts] = useState([])
@@ -21,6 +22,21 @@ export default function CreatePO(){
   const blurTimer = useRef(null)
   const inputRef = useRef(null)
   const listRef = useRef(null)
+
+  // === Result Dialog state
+  const [dlgOpen, setDlgOpen] = useState(false)
+  const [dlgType, setDlgType] = useState('success') // 'success' | 'error'
+  const [dlgTitle, setDlgTitle] = useState('')
+  const [dlgMsg, setDlgMsg] = useState('')
+  const [dlgAutoClose, setDlgAutoClose] = useState(undefined)
+
+  const openDialog = useCallback((type, title, message, autoCloseMs) => {
+    setDlgType(type)
+    setDlgTitle(title)
+    setDlgMsg(message)
+    setDlgAutoClose(autoCloseMs)
+    setDlgOpen(true)
+  }, [])
 
   useEffect(()=>{
     axios.get('/products').then(r=>setProducts(r.data.data||[]))
@@ -137,8 +153,14 @@ export default function CreatePO(){
   const removeItem = (idx) => setItems(items.filter((_,i)=>i!==idx))
 
   const submit = async () => {
-    if (!selectedSupplier) { alert('Pilih supplier dahulu'); return }
-    if (!items.length) { alert('Tambahkan minimal 1 item'); return }
+    if (!selectedSupplier) {
+      openDialog('error', 'Gagal Membuat PO', 'Pilih supplier terlebih dahulu.')
+      return
+    }
+    if (!items.length) {
+      openDialog('error', 'Gagal Membuat PO', 'Tambahkan minimal 1 item ke daftar.')
+      return
+    }
 
     const payload = {
       supplier_id: selectedSupplier.id,
@@ -149,9 +171,26 @@ export default function CreatePO(){
       })),
       note
     }
-    const r = await axios.post('/purchase', payload)
-    alert('PO created: ' + r.data.code)
-    setItems([]); setNote('')
+
+    try {
+      const r = await axios.post('/purchase', payload)
+      const code = r?.data?.code || '(tanpa kode)'
+
+      // Tampilkan dialog sukses
+      openDialog(
+        'success',
+        'PO Berhasil Dibuat',
+        `Kode PO: ${code}\nSupplier: ${selectedSupplier.name}`
+      )
+
+      // reset ringan
+      setItems([])
+      setNote('')
+      // supplier tetap dipertahankan
+    } catch (e) {
+      const msg = e?.response?.data?.message || e.message || 'Terjadi kesalahan saat membuat PO.'
+      openDialog('error', 'Gagal Membuat PO', msg)
+    }
   }
 
   // auto-fix price_per_pack di state (kalau undefined) — tidak ditampilkan
@@ -320,6 +359,16 @@ export default function CreatePO(){
           </div>
         </div>
       </div>
+
+      {/* Dialog Success/Fail */}
+      <ResultDialog
+        open={dlgOpen}
+        type={dlgType}
+        title={dlgTitle}
+        message={dlgMsg}
+        onClose={()=>setDlgOpen(false)}
+        autoCloseMs={dlgAutoClose}
+      />
     </div>
   )
 }
