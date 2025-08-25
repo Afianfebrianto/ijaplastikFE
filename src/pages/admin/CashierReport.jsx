@@ -59,6 +59,40 @@ export default function CashierReport(){
     return `/reports/cashier.csv?${qs}`
   }, [dateFrom, dateTo, cashierId])
 
+  // 1) Tambah handler ini di dalam komponen
+const handleExportCsv = async () => {
+  try {
+    const params = new URLSearchParams({
+      date_from: dateFrom,
+      date_to: dateTo,
+      ...(cashierId ? { cashier_id: cashierId } : {})
+    }).toString();
+
+    // pakai axios agar lewat proxy + include cookie/session
+    const response = await axios.get(`/reports/cashier.csv?${params}`, {
+      responseType: 'blob',
+      withCredentials: true,           // penting kalau auth berbasis cookie httpOnly
+      headers: { Accept: 'text/csv' }, // optional
+    });
+
+    // bikin file buat diunduh
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cashier-report_${dateFrom}_to_${dateTo}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Export CSV gagal:', err);
+    alert('Gagal mengekspor CSV. Coba lagi atau cek login/izin admin.');
+  }
+};
+
+
+
   const openDetail = async (saleRow) => {
     try {
       setActiveSale(saleRow)
@@ -123,7 +157,12 @@ export default function CashierReport(){
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Laporan Kasir</h1>
-        <a className="px-3 py-2 border rounded" href={csvUrl} target="_blank" rel="noreferrer">Export CSV</a>
+       <div className="flex items-center justify-between">
+  <h1 className="text-xl font-semibold">Laporan Kasir</h1>
+  <button className="px-3 py-2 border rounded" onClick={handleExportCsv}>
+    Export CSV
+  </button>
+</div>
       </div>
 
       <form onSubmit={submitFilter} className="card grid md:grid-cols-5 gap-2">
