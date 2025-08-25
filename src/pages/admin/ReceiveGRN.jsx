@@ -29,14 +29,14 @@ export default function ReceiveGRN(){
   const pages = useMemo(()=> Math.max(1, Math.ceil(total/limit)), [total, limit])
 
   const goAction = (po) => {
-    if (po.status === 'received') {
-      // ke halaman detail PO (ubah sesuai rute detailmu)
-      nav(`/admin/purchase/${po.id}`)
-    } else {
-      // ke halaman penerimaan (receive)
-      nav(`/admin/purchase/${po.id}/receive`)
-    }
+  // Halaman detail + receive share komponen: /admin/purchase/:id/receive
+  if (po.status === 'received') {
+    // mode detail (opsional via query string)
+    nav(`/admin/purchase/${po.id}/receive?view=detail`);
+  } else {
+    nav(`/admin/purchase/${po.id}/receive`);
   }
+ };
 
   const actionLabel = (po) => (po.status === 'received' ? 'Detail' : 'Receive')
 

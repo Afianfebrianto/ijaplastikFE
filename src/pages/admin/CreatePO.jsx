@@ -114,27 +114,26 @@ export default function CreatePO(){
   // ====== ITEMS / SUBMIT ======
 
   const addItem = (p) => {
-  setItems(prev => {
-    // cek apakah produk sudah ada
-    const existIdx = prev.findIndex(it => it.product_id === p.id);
-    if (existIdx >= 0) {
-      // kalau ada, update qty_pack
-      const updated = [...prev];
-      updated[existIdx].qty_pack = Number(updated[existIdx].qty_pack) + 1;
-      return updated;
-    }
-    // kalau belum ada, push item baru
-    return [
-      ...prev,
-      {
-        product_id: p.id,
-        name: p.name,
-        qty_pack: 1,
-        price_per_pack: p.wholesale_price_per_pack
+    setItems(prev => {
+      const existIdx = prev.findIndex(it => it.product_id === p.id)
+      if (existIdx >= 0) {
+        const updated = [...prev]
+        updated[existIdx].qty_pack = Number(updated[existIdx].qty_pack) + 1
+        return updated
       }
-    ];
-  });
-};
+      // simpan price_per_pack (untuk payload) tapi tidak ditampilkan
+      return [
+        ...prev,
+        {
+          product_id: p.id,
+          name: p.name,
+          qty_pack: 1,
+          price_per_pack: p.wholesale_price_per_pack
+        }
+      ]
+    })
+  }
+
   const removeItem = (idx) => setItems(items.filter((_,i)=>i!==idx))
 
   const submit = async () => {
@@ -155,12 +154,7 @@ export default function CreatePO(){
     setItems([]); setNote('')
   }
 
-  const total = useMemo(
-    ()=> items.reduce((s,it)=> s + Number(it.qty_pack||0)*Number(it.price_per_pack||0), 0),
-    [items]
-  )
-
-  // ====== AUTO-FIX kalau ada item tanpa price_per_pack ======
+  // auto-fix price_per_pack di state (kalau undefined) — tidak ditampilkan
   useEffect(()=>{
     if (!items.length) return
     let changed = false
@@ -211,7 +205,6 @@ export default function CreatePO(){
             )}
           </div>
 
-          {/* Dropdown (gabungan list + pencarian) */}
           {showDropdown && (
             <div
               ref={listRef}
@@ -260,7 +253,7 @@ export default function CreatePO(){
           <button className="btn-primary" onClick={submit} disabled={!selectedSupplier || !items.length}>
             Submit PO
           </button>
-          <div className="text-sm text-gray-600">Grand Total: <b>{total.toLocaleString()}</b></div>
+          {/* Grand total disembunyikan sesuai permintaan */}
         </div>
       </div>
 
@@ -285,7 +278,7 @@ export default function CreatePO(){
                     {p.sku || '—'} • {p.category || 'Tanpa Kategori'}
                   </div>
                   <div className="text-sm text-gray-500">
-                    Pack: {p.pack_size} {p.unit_name} | {Number(p.wholesale_price_per_pack).toLocaleString()}
+                    Pack: {p.pack_size} {p.unit_name}
                   </div>
                 </div>
                 <button type="button" className="px-2 py-1 border rounded" onClick={()=>addItem(p)}>Tambah</button>
@@ -299,40 +292,33 @@ export default function CreatePO(){
 
         {/* Items */}
         <div className="card">
-  <div className="font-medium mb-2">Items</div>
-  <div className="space-y-2">
-    {items.map((it, idx) => (
-      <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-        <div className="col-span-3">{it.name}</div>
+          <div className="font-medium mb-2">Items</div>
+          <div className="space-y-2">
+            {items.map((it, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-6">{it.name}</div>
 
-        <label className="col-span-2 text-xs text-gray-500">Qty Pack</label>
-        <input
-          className="input col-span-2"
-          type="number"
-          min={1}
-          value={it.qty_pack}
-          onChange={e=>{
-            const v=[...items]; v[idx].qty_pack = e.target.value; setItems(v);
-          }}
-        />
-
-        <label className="col-span-2 text-xs text-gray-500">Harga/Pack</label>
-        <span className="col-span-2 px-3 py-2 border rounded bg-gray-100 text-right">
-          {Number(it.price_per_pack).toLocaleString()}
-        </span>
-
-        <button
-          className="col-span-1 text-red-600"
-          onClick={()=>removeItem(idx)}
-        >
-          Hapus
-        </button>
-      </div>
-    ))}
-    {!items.length && <div className="text-sm text-gray-500">Belum ada item</div>}
-  </div>
-</div>
-
+                <label className="col-span-3 text-xs text-gray-500">Qty Pack</label>
+                <input
+                  className="input col-span-2"
+                  type="number"
+                  min={1}
+                  value={it.qty_pack}
+                  onChange={e=>{
+                    const v=[...items]; v[idx].qty_pack = e.target.value; setItems(v);
+                  }}
+                />
+                <button
+                  className="col-span-1 text-red-600"
+                  onClick={()=>removeItem(idx)}
+                >
+                  Hapus
+                </button>
+              </div>
+            ))}
+            {!items.length && <div className="text-sm text-gray-500">Belum ada item</div>}
+          </div>
+        </div>
       </div>
     </div>
   )
