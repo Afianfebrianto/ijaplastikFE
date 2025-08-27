@@ -16,14 +16,6 @@ export default function SupplierDashboard(){
 
   useEffect(()=>{ load() }, [])
 
-  const confirm = async (id) => {
-    if (!confirmDialog()) return
-    await axios.post(`/purchase/${id}/confirm`)
-    await load()
-  }
-
-  const confirmDialog = () => window.confirm('Konfirmasi PO ini?')
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -44,22 +36,37 @@ export default function SupplierDashboard(){
               </tr>
             </thead>
             <tbody>
-              {pos.map(po => (
-                <tr key={po.id} className="border-b">
-                  <td className="py-2 font-medium">{po.code}</td>
-                  <td><span className="uppercase text-gray-600">{po.status}</span></td>
-                  <td>{po.item_count}</td>
-                  <td>{new Date(po.created_at).toLocaleString()}</td>
-                  <td className="space-x-2">
-                    <Link to={`/supplier/po/${po.id}`} className="text-blue-600 hover:underline">Detail</Link>
-                    {(po.status==='sent' || po.status==='draft') && (
-                      <button onClick={()=>confirm(po.id)} className="text-green-700 hover:underline">
-                        Confirm
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {pos.map(po => {
+                const isAwaiting = po.status === 'sent' || po.status === 'draft'
+                return (
+                  <tr key={po.id} className="border-b">
+                    <td className="py-2 font-medium">{po.code}</td>
+                    <td><span className="uppercase text-gray-600">{po.status}</span></td>
+                    <td>{po.item_count}</td>
+                    <td>{new Date(po.created_at).toLocaleString()}</td>
+                    <td className="space-x-2">
+                      {isAwaiting ? (
+                        // Arahkan ke detail untuk melakukan keputusan + konfirmasi di sana
+                        <Link
+                          to={`/supplier/po/${po.id}`}
+                          className="text-green-700 hover:underline"
+                          title="Buka detail untuk konfirmasi"
+                        >
+                          Confirm
+                        </Link>
+                      ) : (
+                        // Untuk status lain tetap bisa lihat detail
+                        <Link
+                          to={`/supplier/po/${po.id}`}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Detail
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
               {!pos.length && (
                 <tr><td className="py-4 text-sm text-gray-500" colSpan={5}>Belum ada PO</td></tr>
               )}
