@@ -5,25 +5,23 @@ import axios from 'axios'
 function DecisionPill({ decision }) {
   const d = String(decision || 'pending').toLowerCase()
   const cls =
-    d === 'send'
-      ? 'bg-green-100 text-green-700'
-      : d === 'nosend'
-      ? 'bg-red-100 text-red-700'
-      : 'bg-gray-100 text-gray-600'
-  const label =
-    d === 'send' ? 'Dikirim' : d === 'nosend' ? 'Tidak dikirim' : 'Pending'
+    d === 'send' ? 'bg-green-100 text-green-700'
+    : d === 'nosend' ? 'bg-red-100 text-red-700'
+    : 'bg-gray-100 text-gray-600'
+  const label = d === 'send' ? 'Dikirim' : d === 'nosend' ? 'Tidak dikirim' : 'Pending'
   return <span className={`px-2 py-0.5 rounded text-xs ${cls}`}>{label}</span>
 }
 
-// helper
-const fmtMoney = (v) => {
+const expectedToSend = (it) =>
+  String(it.supplier_decision).toLowerCase() === 'nosend' ? 0 : toNum(it.qty_pack)
+
+const toNum = (v, def = 0) => {
   const n = Number(v)
-  return Number.isFinite(n) ? n.toLocaleString() : '—'
+  return Number.isFinite(n) ? n : def
 }
-const fmtNum = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n.toLocaleString() : '—'
-}
+const fmtMoney = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : '—'
+const fmtNum = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString() : '—'
+const fmtDT = (d) => d ? new Date(d).toLocaleString() : '—'
 
 export default function ReceiveGRNDetail(){
   const { id } = useParams()
@@ -31,8 +29,8 @@ export default function ReceiveGRNDetail(){
 
   const [mode, setMode] = useState('receive') // 'receive' | 'detail'
   const [po, setPo] = useState(null)
-  const [formItems, setFormItems] = useState([])     // utk mode receive
-  const [detailItems, setDetailItems] = useState([]) // utk mode detail (summary+history)
+  const [formItems, setFormItems] = useState([])
+  const [detailItems, setDetailItems] = useState([])
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -42,7 +40,6 @@ export default function ReceiveGRNDetail(){
     setError('')
     setLoading(true)
     try {
-      // Ambil header + items PO
       const r = await axios.get(`/purchase/${id}`)
       const poData = r.data.po || r.data.data?.po
       const poItems = r.data.items || []
@@ -55,28 +52,28 @@ export default function ReceiveGRNDetail(){
         // Ambil receive-detail (grns + summary_items)
         const { data } = await axios.get(`/purchase/${id}/receive-detail`, { withCredentials: true })
         if (data?.status) {
-          // pastikan backend sudah include: supplier_decision, supplier_note, supplier_price_per_pack, pack_size
           setDetailItems(Array.isArray(data.summary_items) ? data.summary_items : [])
         } else {
           setDetailItems([])
         }
       } else {
         setMode('receive')
-        // siapkan form: default 0; jika supplier nosend -> paksa 0 & disabled
+        // Siapkan form item (tambahkan _diff_reason untuk catatan selisih)
         setFormItems(
           poItems.map(it => ({
             id: it.id,
             product_id: it.product_id,
             product_name: it.product_name,
-            qty_pack: Number(it.qty_pack || 0),
-            price_per_pack: Number(it.price_per_pack || 0), // harga request/admin (boleh abaikan)
-            pack_size: Number(it.pack_size || 1),
+            qty_pack: toNum(it.qty_pack),
+            price_per_pack: toNum(it.price_per_pack),
+            pack_size: toNum(it.pack_size, 1),
             unit_name: it.unit_name || 'pcs',
             supplier_decision: it.supplier_decision || 'pending',
             supplier_note: it.supplier_note || '',
             supplier_price_per_pack:
-              it.supplier_price_per_pack != null ? Number(it.supplier_price_per_pack) : null,
-            recv_qty_pack: 0
+              it.supplier_price_per_pack != null ? toNum(it.supplier_price_per_pack) : null,
+            recv_qty_pack: 0,
+            _diff_reason: '' // alasan selisih
           }))
         )
       }
@@ -87,63 +84,70 @@ export default function ReceiveGRNDetail(){
 
   useEffect(()=>{ load() }, [id])
 
+  const expectedToSend = (it) =>
+    String(it.supplier_decision).toLowerCase() === 'nosend' ? 0 : toNum(it.qty_pack)
+
   // ===== Mode RECEIVE =====
   const setRecv = (idx, val) => {
-    const v = Math.max(0, Number(val || 0))
-    setFormItems(prev => {
-      const t=[...prev]
-      t[idx].recv_qty_pack = v
-      return t
-    })
-  }
+  let v = Math.max(0, toNum(val))
+  setFormItems(prev => {
+    const t = [...prev]
+    const exp = expectedToSend(t[idx])
+    if (v > exp) v = exp            // ⟵ clamp ke maksimal Qty PO
+    t[idx].recv_qty_pack = v
+    if (v >= exp) t[idx]._diff_reason = '' // kalau tidak ada selisih, kosongkan alasan
+    return t
+  })
+}
 
   const receiveAll = () =>
     setFormItems(prev =>
       prev.map(it => ({
         ...it,
-        recv_qty_pack: String(it.supplier_decision).toLowerCase() === 'nosend'
-          ? 0
-          : Number(it.qty_pack || 0)
+        recv_qty_pack:
+          String(it.supplier_decision).toLowerCase() === 'nosend' ? 0 : toNum(it.qty_pack)
       }))
     )
 
-  const clearAll = () =>
-    setFormItems(prev => prev.map(it => ({ ...it, recv_qty_pack: 0 })))
+  const clearAll = () => setFormItems(prev => prev.map(it => ({ ...it, recv_qty_pack: 0 })))
 
+  // Ringkasan submit (cek harga supplier & alasan selisih)
   const summary = useMemo(() => {
-    if (mode !== 'receive') return { packs: 0, units: 0, cost: 0, missingPrice: 0 }
-    let packs = 0, units = 0, cost = 0, missingPrice = 0
-    for (const it of formItems) {
-      const r = Number(it.recv_qty_pack || 0)
-      const ps = Number(it.pack_size || 1)
-      const supPrice = (it.supplier_price_per_pack != null) ? Number(it.supplier_price_per_pack) : null
-
-      packs += r
-      units += r * ps
-      if (supPrice == null) {
-        if (r > 0) missingPrice += 1
-      } else {
-        cost += r * supPrice
-      }
+    if (mode !== 'receive') return {
+      packs: 0, units: 0, cost: 0, missingPrice: 0, totalDiff: 0, missingDiffReason: 0
     }
-    return { packs, units, cost, missingPrice }
+    let packs=0, units=0, cost=0, missingPrice=0, totalDiff=0, missingDiffReason=0
+    for (const it of formItems) {
+      const recv = toNum(it.recv_qty_pack)
+      const psize = toNum(it.pack_size, 1)
+      const price = it.supplier_price_per_pack != null ? toNum(it.supplier_price_per_pack) : null
+      const exp = expectedToSend(it)
+      const diff = Math.max(0, exp - recv)
+
+      packs += recv
+      units += recv * psize
+
+      if (recv > 0 && price == null) missingPrice += 1
+      if (price != null) cost += recv * price
+
+      totalDiff += diff
+      if (diff > 0 && !String(it._diff_reason || '').trim()) missingDiffReason += 1
+    }
+    return { packs, units, cost, missingPrice, totalDiff, missingDiffReason }
   }, [formItems, mode])
 
-  // ===== Detail totals (mode 'detail') =====
+  // Totals untuk detail mode
   const detailTotals = useMemo(() => {
     if (!Array.isArray(detailItems) || !detailItems.length) {
       return { receivedPacks: 0, receivedUnits: 0, cost: 0, hasPackSize: false }
     }
     let receivedPacks = 0, receivedUnits = 0, cost = 0, hasPackSize = false
     for (const it of detailItems) {
-      const rPack = Number(it.received_qty_pack || 0)
-      const supPrice = it.supplier_price_per_pack != null ? Number(it.supplier_price_per_pack) : null
-      const psize = it.pack_size != null ? Number(it.pack_size) : null
+      const rPack = toNum(it.received_qty_pack)
+      const supPrice = it.supplier_price_per_pack != null ? toNum(it.supplier_price_per_pack) : null
+      const psize = it.pack_size != null ? toNum(it.pack_size) : null
       receivedPacks += rPack
-      if (psize != null && Number.isFinite(psize)) {
-        hasPackSize = true
-        receivedUnits += rPack * psize
-      }
+      if (psize != null && Number.isFinite(psize)) { hasPackSize = true; receivedUnits += rPack * psize }
       if (supPrice != null) cost += rPack * supPrice
     }
     return { receivedPacks, receivedUnits, cost, hasPackSize }
@@ -151,13 +155,34 @@ export default function ReceiveGRNDetail(){
 
   const submit = async () => {
     setError('')
-    const picked = formItems
-      .filter(it => Number(it.recv_qty_pack||0)>0)
-      .map(it => ({ product_id: it.product_id, qty_pack: Number(it.recv_qty_pack) }))
-    if (!picked.length) { setError('Isi minimal 1 item diterima'); return }
+    // Kirim semua item: qty diterima + (jika ada) selisih + alasan
+    const payloadItems = formItems
+      .filter(it => toNum(it.recv_qty_pack) > 0 || expectedToSend(it) > 0)
+      .map(it => {
+        const exp = expectedToSend(it)
+        const recv = toNum(it.recv_qty_pack)
+        const diff = Math.max(0, exp - recv)
+        return {
+          product_id: it.product_id,
+          qty_pack: recv,
+          diff_qty_pack: diff > 0 ? diff : 0,
+          diff_reason: diff > 0 ? (it._diff_reason || '') : ''
+        }
+      })
+
+    if (!payloadItems.some(x => x.qty_pack > 0)) {
+      setError('Isi minimal 1 item diterima'); return
+    }
+    if (summary.missingPrice > 0) {
+      setError('Ada item diterima tanpa harga supplier (dari supplier).'); return
+    }
+    if (summary.missingDiffReason > 0) {
+      setError('Alasan selisih wajib diisi untuk setiap item yang selisih.'); return
+    }
+
     try {
       setSubmitting(true)
-      const r = await axios.post(`/purchase/${id}/receive`, { items: picked, note })
+      const r = await axios.post(`/purchase/${id}/receive`, { items: payloadItems, note })
       alert(`GRN OK: ${r.data.grn_id}`)
       nav('/admin/purchase/receive')
     } catch (e) {
@@ -182,18 +207,27 @@ export default function ReceiveGRNDetail(){
         <div className="text-red-600">{error}</div>
       ) : (
         <>
-          <div className="grid md:grid-cols-3 gap-3">
+          {/* Header + timestamps */}
+          <div className="grid md:grid-cols-4 gap-3">
             <div className="card">
               <div className="text-sm text-gray-500">Kode</div>
               <div className="font-medium">{po.code}</div>
+            </div>
+            <div className="card">
+              <div className="text-sm text-gray-500">Supplier</div>
+              <div className="font-medium">{po.supplier_name || '—'}</div>
             </div>
             <div className="card">
               <div className="text-sm text-gray-500">Status</div>
               <div className="font-medium uppercase">{po.status}</div>
             </div>
             <div className="card">
-              <div className="text-sm text-gray-500">Tanggal</div>
-              <div className="font-medium">{new Date(po.created_at).toLocaleString()}</div>
+              <div className="text-sm text-gray-500">Dikonfirmasi / Diterima</div>
+              <div className="text-xs">
+                 <div>Permintaan: <b>{fmtDT(po.created_at)}</b></div>
+                <div>Confirmed: <b>{fmtDT(po.confirmed_at)}</b></div>
+                <div>Received: <b>{fmtDT(po.received_at)}</b></div>
+              </div>
             </div>
           </div>
 
@@ -217,16 +251,21 @@ export default function ReceiveGRNDetail(){
                         <th>Pack Size</th>
                         <th>Keputusan Supplier</th>
                         <th>Harga Supplier / Pack</th>
-                        <th>Keterangan</th>
+                        <th>Keterangan Supplier</th>
                         <th>Diterima (Pack)</th>
                         <th>= Units</th>
+                        <th>Selisih (Pack)</th>
+                        <th>Alasan Selisih</th>
                       </tr>
                     </thead>
                     <tbody>
                       {formItems.map((it, idx) => {
-                        const units = Number(it.recv_qty_pack||0) * Number(it.pack_size||1)
                         const blocked = String(it.supplier_decision).toLowerCase() === 'nosend'
+                        const recvUnits = toNum(it.recv_qty_pack) * toNum(it.pack_size, 1)
+                        const exp = expectedToSend(it)
+                        const diff = Math.max(0, exp - toNum(it.recv_qty_pack))
                         const hSupplier = it.supplier_price_per_pack
+
                         return (
                           <tr key={it.id} className="border-b">
                             <td className="py-2">
@@ -238,22 +277,42 @@ export default function ReceiveGRNDetail(){
                             <td>{hSupplier == null ? '—' : fmtNum(hSupplier)}</td>
                             <td className="text-xs text-gray-700">{it.supplier_note || '—'}</td>
                             <td className="w-40">
+                            <input
+  className={`input ${blocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+  type="number"
+  min={0}
+  max={expectedToSend(it)}         // ⟵ batas maksimum tampil di UI juga
+  step={1}
+  value={blocked ? 0 : it.recv_qty_pack}
+  onChange={e => !blocked && setRecv(idx, e.target.value)}
+  disabled={blocked}
+  title={blocked
+    ? 'Supplier menandai item ini tidak dikirim'
+    : `Maksimal ${expectedToSend(it)} pack`}
+ />
+
+                            </td>
+                            <td className="w-24">{fmtNum(recvUnits)}</td>
+                            <td className="w-24">{fmtNum(diff)}</td>
+                            <td className="w-60">
                               <input
-                                className={`input ${blocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                type="number"
-                                min={0}
-                                value={blocked ? 0 : it.recv_qty_pack}
-                                onChange={e=>!blocked && setRecv(idx, e.target.value)}
-                                disabled={blocked}
-                                title={blocked ? 'Supplier menandai item ini tidak dikirim' : ''}
+                                className="input w-full"
+                                placeholder="contoh: 2 rusak, 1 kemasan sobek"
+                                value={it._diff_reason}
+                                onChange={e=>{
+                                  const v=[...formItems]
+                                  v[idx]._diff_reason = e.target.value
+                                  setFormItems(v)
+                                }}
+                                disabled={diff === 0}
+                                title={diff>0 ? 'Wajib isi alasan jika ada selisih' : ''}
                               />
                             </td>
-                            <td className="w-32">{fmtNum(units)}</td>
                           </tr>
                         )
                       })}
                       {!formItems.length && (
-                        <tr><td className="py-3 text-gray-500" colSpan={8}>Tidak ada item</td></tr>
+                        <tr><td className="py-3 text-gray-500" colSpan={10}>Tidak ada item</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -272,20 +331,36 @@ export default function ReceiveGRNDetail(){
                 </div>
                 <div className="card">
                   <div className="text-sm text-gray-500">Ringkasan</div>
-                  <div className="font-medium">Total Pack: {fmtNum(summary.packs)}</div>
+                  <div className="font-medium">Total Pack Diterima: {fmtNum(summary.packs)}</div>
                   <div className="font-medium">Total Units: {fmtNum(summary.units)}</div>
+                  <div className="font-medium">Total Selisih (Pack): {fmtNum(summary.totalDiff)}</div>
                   <div className="font-semibold">
                     Total Biaya (Harga Supplier): {fmtMoney(summary.cost)}
                   </div>
                   {summary.missingPrice > 0 && (
                     <div className="text-xs text-amber-700 mt-1">
-                      * {summary.missingPrice} item diterima tanpa harga supplier — dianggap 0.
+                      * Ada {summary.missingPrice} item diterima tanpa harga supplier — lengkapi dulu (oleh supplier).
+                    </div>
+                  )}
+                  {summary.missingDiffReason > 0 && (
+                    <div className="text-xs text-amber-700">
+                      * Ada {summary.missingDiffReason} item selisih tanpa alasan — isi alasannya.
                     </div>
                   )}
                   <button
                     className="btn-primary w-full mt-2"
                     onClick={submit}
-                    disabled={submitting || !formItems.some(it => Number(it.recv_qty_pack) > 0)}
+                    disabled={
+                      submitting ||
+                      !formItems.some(it => toNum(it.recv_qty_pack) > 0) ||
+                      summary.missingPrice > 0 ||
+                      summary.missingDiffReason > 0
+                    }
+                    title={
+                      summary.missingPrice > 0
+                        ? 'Ada item diterima tanpa harga supplier'
+                        : (summary.missingDiffReason > 0 ? 'Alasan selisih belum diisi' : '')
+                    }
                   >
                     {submitting ? 'Menyimpan…' : 'Simpan Penerimaan'}
                   </button>
@@ -302,7 +377,8 @@ export default function ReceiveGRNDetail(){
                       <th className="py-2">Item</th>
                       <th>Ordered (Pack)</th>
                       <th>Received (Pack)</th>
-                      <th>Remaining (Pack)</th>
+                      <th>Selisih (Pack)</th>
+                      <th>Alasan Selisih</th>{/* ← NEW */}
                       <th>Harga Supplier / Pack</th>
                       <th>Biaya Diterima</th>
                       <th>Keputusan</th>
@@ -311,15 +387,17 @@ export default function ReceiveGRNDetail(){
                   </thead>
                   <tbody>
                     {detailItems.map(it => {
-                      const supPrice = it.supplier_price_per_pack != null ? Number(it.supplier_price_per_pack) : null
-                      const recvPack = Number(it.received_qty_pack || 0)
+                      const supPrice = it.supplier_price_per_pack != null ? toNum(it.supplier_price_per_pack) : null
+                      const recvPack = toNum(it.received_qty_pack)
                       const lineCost = supPrice != null ? recvPack * supPrice : null
+                      const reason = (it.admin_return_reason || '').trim()
                       return (
                         <tr key={it.purchase_item_id} className="border-b align-top">
                           <td className="py-2 font-medium">{it.product_name}</td>
                           <td>{fmtNum(it.ordered_qty_pack)}</td>
                           <td>{fmtNum(it.received_qty_pack)}</td>
                           <td>{fmtNum(it.remaining_qty_pack)}</td>
+                          <td className="text-xs text-gray-700">{reason || '—'}</td>
                           <td>{supPrice != null ? fmtMoney(supPrice) : '—'}</td>
                           <td>{lineCost != null ? fmtMoney(lineCost) : '—'}</td>
                           <td><DecisionPill decision={it.supplier_decision} /></td>
@@ -328,7 +406,7 @@ export default function ReceiveGRNDetail(){
                       )
                     })}
                     {!detailItems.length && (
-                      <tr><td className="py-4 text-gray-500" colSpan={8}>Tidak ada data</td></tr>
+                      <tr><td className="py-4 text-gray-500" colSpan={9}>Tidak ada data</td></tr>
                     )}
                   </tbody>
 
@@ -337,11 +415,8 @@ export default function ReceiveGRNDetail(){
                       <tr className="border-t font-semibold">
                         <td className="py-2 text-right" colSpan={2}>Total Received:</td>
                         <td>{fmtNum(detailTotals.receivedPacks)} pack</td>
-                        <td>
-                          {detailTotals.hasPackSize
-                            ? `${fmtNum(detailTotals.receivedUnits)} unit`
-                            : '—'}
-                        </td>
+                        <td>{/* remaining total tidak perlu di-total-kan */}</td>
+                        <td>{/* alasan selisih (total) tidak relevan */}</td>
                         <td className="text-right">Total Biaya:</td>
                         <td>{fmtMoney(detailTotals.cost)}</td>
                         <td colSpan={2}></td>
